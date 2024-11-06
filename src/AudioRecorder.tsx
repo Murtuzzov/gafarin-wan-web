@@ -17,7 +17,6 @@ const AudioRecorder: React.FC = () => {
     null
   );
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [audioChunks, setAudioChunks] = useState<BlobPart[]>([]);
   const [region, setRegion] = useState<any | null>(null)
   const [wavesurfer, setWavesurfer] = useState<WaveSurferExt | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -52,7 +51,6 @@ const AudioRecorder: React.FC = () => {
       recorder.ondataavailable = (event) => newChunks.push(event.data);
       recorder.onstop = () => {
         const blob = new Blob(newChunks, { type: "audio/wav" });
-        setAudioChunks(newChunks);
         setAudioBlob(blob);
         createWaveform(blob);
         setHasRecorded(true);
