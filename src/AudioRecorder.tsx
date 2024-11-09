@@ -3,7 +3,11 @@
 import React, { useRef, useState, useEffect } from "react";
 import axios from "axios";
 import WaveSurfer from "wavesurfer.js";
+import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions'
 import { Mic, Play, Pause, Scissors, Upload } from "lucide-react";
+import { sliceAudioBlob } from "./audio";
+
+type WaveSurferExt = WaveSurfer & { regions: RegionsPlugin };
 
 const AudioRecorder: React.FC = () => {
   const waveformRef = useRef<HTMLDivElement>(null);
@@ -13,7 +17,8 @@ const AudioRecorder: React.FC = () => {
     null
   );
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [wavesurfer, setWavesurfer] = useState<WaveSurfer | null>(null);
+  const [region, setRegion] = useState<any | null>(null)
+  const [wavesurfer, setWavesurfer] = useState<WaveSurferExt | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [hasRecorded, setHasRecorded] = useState<boolean>(false);
   const [trimStart, setTrimStart] = useState<number>(0);
@@ -41,11 +46,11 @@ const AudioRecorder: React.FC = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
+      const newChunks: BlobPart[] = [];
 
-      recorder.ondataavailable = (event) => chunks.push(event.data);
+      recorder.ondataavailable = (event) => newChunks.push(event.data);
       recorder.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/ogg; codecs=opus" });
+        const blob = new Blob(newChunks, { type: "audio/wav" });
         setAudioBlob(blob);
         createWaveform(blob);
         setHasRecorded(true);
@@ -71,12 +76,11 @@ const AudioRecorder: React.FC = () => {
         waveColor: "violet",
         progressColor: "purple",
         cursorColor: "navy",
-        plugins: [
-          WaveSurfer.regions.create({
-            regionsMinLength: 1,
-          }),
-        ],
-      });
+      }) as WaveSurferExt;
+      // Initialize the Regions plugin
+      const regionsPlugin = newWavesurfer.registerPlugin(RegionsPlugin.create())
+      newWavesurfer.regions = regionsPlugin
+      
       newWavesurfer.loadBlob(blob);
       setWavesurfer(newWavesurfer);
 
@@ -87,10 +91,15 @@ const AudioRecorder: React.FC = () => {
   };
 
   const togglePlayPause = () => {
-    if (wavesurfer) {
-      isPlaying ? wavesurfer.pause() : wavesurfer.play();
-      setIsPlaying(!isPlaying);
+    if (!wavesurfer) {
+      return;
     }
+    if (isPlaying) { 
+      wavesurfer.pause()
+    } else {
+      wavesurfer.play();
+    }
+    setIsPlaying(!isPlaying);
   };
 
   const handleReplaceWord = async () => {
@@ -109,21 +118,32 @@ const AudioRecorder: React.FC = () => {
   };
 
   const createTrimRegion = () => {
-    if (wavesurfer) {
-      wavesurfer.addRegion({
+    if (wavesurfer && wavesurfer.regions) {
+      const newRegion = wavesurfer.regions.addRegion({
         start: trimStart,
         end: wavesurfer.getDuration(),
         color: "rgba(0, 255, 0, 0.3)",
       });
+      setRegion(newRegion)
     }
   };
 
   const trimAudio = () => {
-    if (wavesurfer) {
-      const trimmedBlob = wavesurfer.getAudioBuffer().getChannelData(0);
-      const blob = new Blob([trimmedBlob], { type: "audio/ogg; codecs=opus" });
-      setAudioBlob(blob);
-      createWaveform(blob);
+    if (wavesurfer &&  region && audioBlob) {
+      sliceAudioBlob(audioBlob, region.start, region.end)
+        .then((slicedWavBlob) => {
+            setAudioBlob(slicedWavBlob);
+            createWaveform(slicedWavBlob);
+            // Use the sliced WAV Blob as needed
+            const audioURL = URL.createObjectURL(slicedWavBlob);
+
+            // Play the sliced audio
+            const audioElement = new Audio(audioURL);
+            audioElement.play();
+        })
+        .catch((error) => {
+            console.error('Error slicing audio Blob:', error);
+        });
     }
   };
 
@@ -134,7 +154,7 @@ const AudioRecorder: React.FC = () => {
   const handleConfirmUpload = async () => {
     if (audioBlob) {
       const formData = new FormData();
-      formData.append("audio", audioBlob, "audio.ogg");
+      formData.append("audio", audioBlob, "audio.wav");
       formData.append("id", "someId");
       formData.append("spelling", word);
 
